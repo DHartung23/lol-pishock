@@ -1,12 +1,19 @@
+#from asyncio.unix_events import can_use_pidfd
+from dataclasses import asdict
+
 import requests
 import json
 import time
 import urllib3
 import os.path
 import shutil
+from pishock import SerialAPI
+import serial.tools.list_ports
 
 # disable https warning -- future me, replace with an implementation of the root certificate for security purposes
 urllib3.disable_warnings()
+
+
 
 # colors used for printing, "stolen" from blender
 class bcolors:
@@ -43,6 +50,10 @@ else:
 username = shock["Username"]
 apikey = shock["Apikey"]
 code = shock["Code"]
+id = shock["shocker_id"] #added for serial API thing
+s_intensity=int(shock["Intensity"])
+s_duration=int(shock["Duration"])
+
 if username == "PISHOCK-USERNAME":
     print(f'{bcolors.BOLD}{bcolors.FAIL}Your config file still contains the default value for USERNAME, change it and restart LoL-PiShock.{bcolors.ENDC}')
     exit()
@@ -55,24 +66,46 @@ if code == "PISHOCK-CODE":
 # inform user of the values
 
 op = shock["Op"]
-if op == "0":
-    operation = "Shock"
-elif op == "1":
-    operation = "Vibrate"
-elif op == "2":
-    operation = "Beep"
-else:
-    operation = f"{bcolors.FAIL}INVALID VALUE, the value for operation should be 0, 1 or 2{bcolors.ENDC}"
-duration = shock["Duration"]
-intensity = shock["Intensity"]
-print(f'{bcolors.BOLD}{bcolors.HEADER}Current values for shocking:{bcolors.ENDC}', f'\n{bcolors.OKCYAN}Operation:{bcolors.ENDC}', operation, f'\n{bcolors.OKCYAN}Duration:{bcolors.ENDC}', duration, f'{bcolors.OKCYAN}\nIntensity:{bcolors.ENDC}', intensity + f'{bcolors.ENDC}')
-print(f'{bcolors.BOLD}{bcolors.OKGREEN}Running a BEEP test on the PiShock connection.{bcolors.ENDC}')
+
+match op:
+    case "0":
+        operation = "Shock"
+    case "1":
+        operation = "Vibrate"
+    case "2":
+        operation = "Beep"
+    case _:
+        operation = f"{bcolors.FAIL}INVALID VALUE, the value for operation should be 0, 1 or 2{bcolors.ENDC}"
+
+
+def find_pishock_port():
+    """find port for Thingy"""
+    ports = serial.tools.list_ports.comports()
+    for port in ports:
+        print(f"Gefundener Port: {port.device} - {port.description}")
+        if "USB" in port.description or "Serial" in port.description:
+            return port.device
+    return None
+api = SerialAPI(find_pishock_port())
+shocker = api.shocker(int(id))
 try:
-    testshock = shock
-    testshock["Op"] = "2"
-    requests.post('https://do.pishock.com/api/apioperate/', json = testshock)
+    shocker.beep(s_duration)
 except:
     print(f'{bcolors.BOLD}{bcolors.FAIL}Error: {Exception}{bcolors.ENDC}')
+
+def punishment():
+    match operation:
+        case "Shock":
+            shocker.shock(duration=s_duration, intensity=s_intensity)
+        case "Vibrate":
+            shocker.vibrate(duration=s_duration, intensity=s_intensity)
+        case "Beep":
+            shocker.beep(duration=s_duration)
+
+
+print(f'{bcolors.BOLD}{bcolors.HEADER}Current values for shocking:{bcolors.ENDC}', f'\n{bcolors.OKCYAN}Operation:{bcolors.ENDC}', operation, f'\n{bcolors.OKCYAN}Duration:{bcolors.ENDC}', s_duration, f'{bcolors.OKCYAN}\nIntensity:{bcolors.ENDC}', str(s_intensity) + f'{bcolors.ENDC}')
+print(f'{bcolors.BOLD}{bcolors.OKGREEN}Running a BEEP test on the PiShock connection.{bcolors.ENDC}')
+
 running = True
 while running:
 
@@ -118,11 +151,11 @@ while running:
                 if cooldown == 0:
                     #do the shock here
                     print(f'{bcolors.BOLD}{bcolors.WARNING}Shock time!{bcolors.ENDC}')
-                    requests.post('https://do.pishock.com/api/apioperate/', json = shock)
+                    punishment()
                     cooldown = 1
             else:
                 if cooldown == 1:
                     cooldown = 0
         except requests.exceptions.ConnectionError:
             check_process_running()
-        time.sleep(0.1) 
+        time.sleep(0.1)
